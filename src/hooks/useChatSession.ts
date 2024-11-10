@@ -1,22 +1,18 @@
 import React, {useRef, useCallback, useState} from 'react';
 
 import {toJS} from 'mobx';
+import {LlamaContext} from '@pocketpalai/llama.rn';
 import throttle from 'lodash.throttle';
-
-import {
-  applyChatTemplate,
-  chatTemplates,
-  convertToChatMessages,
-} from '../utils/chat';
 
 import {randId} from '../utils';
 import {L10nContext} from '../utils';
 import {chatSessionStore, modelStore} from '../store';
 
 import {MessageType, User} from '../utils/types';
+import {applyChatTemplate, convertToChatMessages} from '../utils/chat';
 
 export const useChatSession = (
-  context: any,
+  context: LlamaContext | undefined,
   currentMessageInfo: React.MutableRefObject<{
     createdAt: number;
     id: string;
@@ -26,6 +22,7 @@ export const useChatSession = (
   assistant: User,
 ) => {
   const [inferencing, setInferencing] = useState<boolean>(false);
+  const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const l10n = React.useContext(L10nContext);
   const conversationIdRef = useRef<string>(randId());
 
@@ -93,6 +90,7 @@ export const useChatSession = (
     };
     addMessage(textMessage);
     setInferencing(true);
+    setIsStreaming(false);
 
     const id = randId();
     const createdAt = Date.now();
@@ -113,10 +111,10 @@ export const useChatSession = (
       ]),
     ];
 
-    const prompt = applyChatTemplate(
-      modelStore.activeModel?.chatTemplate || chatTemplates.default,
+    const prompt = await applyChatTemplate(
       chatMessages,
-      1000, // This is not used.
+      modelStore.activeModel ?? null,
+      context,
     );
 
     const completionParams = toJS(modelStore.activeModel?.completionSettings);
@@ -126,6 +124,9 @@ export const useChatSession = (
         {...completionParams, prompt},
         data => {
           if (data.token && currentMessageInfo.current) {
+            if (!isStreaming) {
+              setIsStreaming(true);
+            }
             tokenBufferRef.current += data.token;
             // Avoid variable shadowing by using properties directly
             throttledFlushTokenBuffer(
@@ -152,8 +153,10 @@ export const useChatSession = (
         metadata: {timings: result.timings, copyable: true},
       });
       setInferencing(false);
+      setIsStreaming(false);
     } catch (error) {
       setInferencing(false);
+      setIsStreaming(false);
       const errorMessage = (error as Error).message;
       if (errorMessage.includes('network')) {
         // TODO: This can be removed. We don't use network for chat.
@@ -189,5 +192,6 @@ export const useChatSession = (
     handleResetConversation,
     handleStopPress,
     inferencing,
+    isStreaming,
   };
 };

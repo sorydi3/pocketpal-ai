@@ -17,6 +17,15 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v3
 
+      # Cache node_modules
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+        
       # Step 2: Set up Node.js environment
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -45,9 +54,19 @@ jobs:
   # Job for Android build
   build-android:
     runs-on: ubuntu-latest
+    needs: build-and-test
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+
+      # Cache node_modules
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install Yarn
         run: npm install -g yarn
@@ -60,16 +79,33 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
 
       - name: Build Android
-        run: yarn build:android
+        run: yarn build:android # TODO: change to build:android:release
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v3
+        with:
+          name: android-debug-apk # TODO: change to release-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
 
   # Job for iOS build
   build-ios:
     runs-on: macos-latest  # macOS runner required for iOS builds
+    needs: build-and-test
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+
+      # Cache node_modules
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-    
 
       - name: Install Yarn
         run: npm install -g yarn

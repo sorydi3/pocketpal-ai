@@ -1,7 +1,6 @@
 import {applyTemplate, Templates} from 'chat-formatter';
-import {ChatMessage, ChatTemplateConfig, MessageType} from './types';
-//import {assistant} from '../store/ChatSessionStore';
-import {CompletionParams} from 'llama.rn';
+import {ChatMessage, ChatTemplateConfig, MessageType, Model} from './types';
+import {CompletionParams, LlamaContext} from '@pocketpalai/llama.rn';
 
 export const userId = 'y9d7f8pgn';
 export const assistantId = 'h3o3lc5xj';
@@ -22,21 +21,42 @@ export function convertToChatMessages(
     .reverse();
 }
 
-export function applyChatTemplate(
-  template: ChatTemplateConfig,
-  chat: ChatMessage[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  length: number, //TODO: inforce length of formattedChat to fit the context.
-): string {
-  const formattedChat: string = applyTemplate(chat, {
-    customTemplate: template,
-    addGenerationPrompt: template.addGenerationPrompt,
-  }) as string;
+export async function applyChatTemplate(
+  messages: ChatMessage[],
+  model: Model | null,
+  context: LlamaContext | null,
+): Promise<string> {
+  const modelChatTemplate = model?.chatTemplate;
+  const contextChatTemplate = (context?.model as any)?.metadata?.[
+    'tokenizer.chat_template'
+  ];
 
-  return formattedChat;
+  let formattedChat: string | undefined;
+
+  try {
+    if (modelChatTemplate?.chatTemplate) {
+      formattedChat = applyTemplate(messages, {
+        customTemplate: modelChatTemplate,
+        addGenerationPrompt: modelChatTemplate.addGenerationPrompt,
+      }) as string;
+    } else if (contextChatTemplate) {
+      formattedChat = await context?.getFormattedChat(messages);
+    }
+
+    if (!formattedChat) {
+      formattedChat = applyTemplate(messages, {
+        customTemplate: chatTemplates.default,
+        addGenerationPrompt: chatTemplates.default.addGenerationPrompt,
+      }) as string;
+    }
+  } catch (error) {
+    console.error('Error applying chat template:', error); // TODO: handle error
+  }
+
+  return formattedChat || ' ';
 }
 
-export const chatTemplates = {
+export const chatTemplates: Record<string, ChatTemplateConfig> = {
   danube3: {
     ...Templates.templates.danube2,
     name: 'danube3',
@@ -112,26 +132,39 @@ export const chatTemplates = {
     systemPrompt:
       'You are Qwen, created by Alibaba Cloud. You are a helpful assistant.',
   },
+  smolLM: {
+    name: 'smolLM',
+    addGenerationPrompt: true,
+    systemPrompt: 'You are a helpful assistant.',
+    bosToken: '<|im_start|>',
+    eosToken: '<|im_end|>',
+    addBosToken: false,
+    addEosToken: false,
+    chatTemplate: '',
+  },
 };
 
 export const defaultCompletionParams: CompletionParams = {
   prompt: '',
-  n_predict: 400,
-  temperature: 0.7,
-  top_k: 40,
-  top_p: 0.95,
-  tfs_z: 1.0,
-  typical_p: 1.0,
-  penalty_last_n: 64,
-  penalty_repeat: 1.0,
-  penalty_freq: 0.0,
-  penalty_present: 0.0,
-  mirostat: 0,
-  mirostat_tau: 5,
-  mirostat_eta: 0.1,
-  penalize_nl: false,
+  n_predict: 400, // The maximum number of tokens to predict when generating text.
+  temperature: 0.7, // The randomness of the generated text.
+  top_k: 40, // Limit the next token selection to the K most probable tokens.
+  top_p: 0.95, // Limit the next token selection to a subset of tokens with a cumulative probability above a threshold P.
+  tfs_z: 1.0, //Enable tail free sampling with parameter z. Default: `1.0`, which is disabled.
+  min_p: 0.05, //The minimum probability for a token to be considered, relative to the probability of the most likely token.
+  xtc_threshold: 0.1, // Sets a minimum probability threshold for tokens to be removed.
+  xtc_probability: 0.0, // Sets the chance for token removal (checked once on sampler start)
+  typical_p: 1.0, // Enable locally typical sampling with parameter p. Default: `1.0`, which is disabled.
+  penalty_last_n: 64, // Last n tokens to consider for penalizing repetition. Default: `64`, where `0` is disabled and `-1` is ctx-size.
+  penalty_repeat: 1.0, // Control the repetition of token sequences in the generated text.
+  penalty_freq: 0.0, // Repeat alpha frequency penalty. Default: `0.0`, which is disabled.
+  penalty_present: 0.0, // Repeat alpha presence penalty. Default: `0.0`, which is disabled.
+  mirostat: 0, //Enable Mirostat sampling, controlling perplexity during text generation. Default: `0`, where `0` is disabled, `1` is Mirostat, and `2` is Mirostat 2.0.
+  mirostat_tau: 5, // Set the Mirostat target entropy, parameter tau. Default: `5.0`
+  mirostat_eta: 0.1, // Set the Mirostat learning rate, parameter eta.  Default: `0.1`
+  penalize_nl: false, //Penalize newline tokens when applying the repeat penalty.
   seed: 0,
-  n_probs: 0,
+  n_probs: 0, // If greater than 0, the response also contains the probabilities of top N tokens for each generated token given the sampling settings.
   stop: ['</s>'],
   // emit_partial_completion: true, // This is not used in the current version of llama.rn
 };
